@@ -1170,6 +1170,8 @@ function restartRace() {
   survivalTime = 0;
   policeGap = 72;
   escapeCaught = false;
+  wantedLevel = 1; maxWantedLevel = 1; escapeDistance = 0; hiddenTime = 0; immobilizedTime = 0;
+  police.forEach((cop, i) => { cop.active = i === 0; cop.mesh.visible = cop.active; });
   countdown = 3.5;
   raceFinished = false;
   lateral = 0;
