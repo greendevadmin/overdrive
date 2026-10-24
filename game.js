@@ -773,6 +773,11 @@ const traffic = [];
 const police = [];
 let policeGap = 72;
 let escapeCaught = false;
+let wantedLevel = 1;
+let maxWantedLevel = 1;
+let escapeDistance = 0;
+let hiddenTime = 0;
+let immobilizedTime = 0;
 const rivalColors = [0xf1f1eb, 0xe53f3f, 0xf0b82e, 0x2ab66a, 0x752fea];
 if (requestedMode !== 'escape') {
   for (let i = 0; i < 5; i++) {
@@ -795,10 +800,10 @@ if (requestedMode !== 'escape') {
 }
 
 if (requestedMode === 'escape') {
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     const mesh = makeCar(i === 0 ? 0xf4f7ff : 0x182b46, true);
     scene.add(mesh);
-    police.push({ mesh, offset: (i - 1) * 3.4, delay: i * 8 });
+    police.push({ mesh, offset: (i - 2) * 3.1, delay: i * 7, active: i === 0 });
   }
 
   const trafficColors = [0xe7e7df, 0xd94444, 0x23a6a6, 0xb4a2d9];
@@ -1126,10 +1131,10 @@ function finishRace(caught = false) {
     document.querySelector('.race-panel .race-stat:first-child .eyebrow').textContent = 'COPA ' + cupProgress.race + '/' + CUP_RACES + ' · VOLTA';
   }
   document.querySelector('#finish-overlay .eyebrow').textContent =
-    requestedMode === 'escape' ? 'OVERDRIVE · FIM DA FUGA' : 'OVERDRIVE · ' + (cupProgress.race === CUP_RACES ? 'COPA CONCLUÍDA' : 'CORRIDA ' + cupProgress.race + '/' + CUP_RACES);
+    requestedMode === 'escape' ? (escapeCaught ? 'OVERDRIVE · CAPTURA' : 'OVERDRIVE · FUGA CONCLUÍDA') : 'OVERDRIVE · ' + (cupProgress.race === CUP_RACES ? 'COPA CONCLUÍDA' : 'CORRIDA ' + cupProgress.race + '/' + CUP_RACES);
   document.querySelector('#finish-overlay h1').textContent =
     requestedMode === 'escape'
-      ? (escapeCaught ? 'Você foi capturado!' : 'Fim da fuga')
+      ? (escapeCaught ? 'Você foi capturado!' : 'Você escapou!')
       : 'Corrida concluída!';
   document.getElementById('finish-position').textContent =
     requestedMode === 'escape'
@@ -1536,27 +1541,35 @@ function animate() {
 
     if (requestedMode === 'escape' && raceCanMove) {
       const playerSpeedKmh = speed * 3;
-      const closingRate = 1.1 + survivalTime * 0.035 - Math.min(playerSpeedKmh, 180) * 0.018;
-      policeGap = THREE.MathUtils.clamp(policeGap - closingRate * dt, 3.1, 150);
-      // Pursuit uses the player's real world position, not only the road's
-      // centerline progress. Police therefore follow when the player steers wide.
+      escapeDistance += speed * dt;
+      wantedLevel = THREE.MathUtils.clamp(1 + Math.floor(Math.max(survivalTime / 24, escapeDistance / 1250)), 1, 5);
+      maxWantedLevel = Math.max(maxWantedLevel, wantedLevel);
+      police.forEach((cop, i) => { cop.active = i < wantedLevel; cop.mesh.visible = cop.active; });
+      const closingRate = 0.9 + wantedLevel * 0.22 + survivalTime * 0.012 - Math.min(playerSpeedKmh, 190) * 0.021;
+      policeGap = THREE.MathUtils.clamp(policeGap - closingRate * dt, 3.1, 190);
       const playerForward = new THREE.Vector3(Math.sin(playerHeading), 0, Math.cos(playerHeading));
       const playerRight = new THREE.Vector3(playerForward.z, 0, -playerForward.x);
       for (const cop of police) {
+        if (!cop.active) continue;
         const target = playerPosition.clone()
-          .addScaledVector(playerForward, -(policeGap + cop.delay * 2.2))
+          .addScaledVector(playerForward, -(policeGap + cop.delay * 1.6))
           .addScaledVector(playerRight, cop.offset);
         const toTarget = target.clone().sub(cop.mesh.position);
         const distanceToTarget = toTarget.length();
-        const chaseSpeed = 34 + Math.min(survivalTime * 0.18, 16);
-        if (distanceToTarget > 0.001) {
-          cop.mesh.position.addScaledVector(toTarget, Math.min(1, chaseSpeed * dt / distanceToTarget));
-        }
+        const chaseSpeed = 27 + wantedLevel * 2.2 + Math.min(survivalTime * 0.08, 8);
+        if (distanceToTarget > 0.001) cop.mesh.position.addScaledVector(toTarget, Math.min(1, chaseSpeed * dt / distanceToTarget));
         cop.mesh.position.y = 0;
         const towardPlayer = playerPosition.clone().sub(cop.mesh.position);
         cop.mesh.rotation.y = Math.atan2(towardPlayer.x, towardPlayer.z);
       }
-      if (policeGap <= 3.2) { finishRace(true); }
+      if (policeGap >= 175) hiddenTime += dt; else hiddenTime = Math.max(0, hiddenTime - dt * 1.5);
+      if (speed < 1.8 && policeGap < 18) immobilizedTime += dt;
+      else immobilizedTime = Math.max(0, immobilizedTime - dt * 1.8);
+      if (immobilizedTime >= 5) finishRace(true);
+      else if (hiddenTime >= 12) finishRace(false);
+      const pursuitStatus = hiddenTime > 0 ? 'SINAL PERDIDO · ' + Math.ceil(12 - hiddenTime) + 's' : 'PERSEGUIÇÃO ATIVA';
+      document.getElementById('hint').textContent = 'PROCURADO ' + wantedLevel + '/5 · ' + pursuitStatus;
+      document.querySelector('.position-panel .eyebrow').textContent = 'DISTÂNCIA DA POLÍCIA';
     }
 
     // Car-to-car collision. The player is pushed out of the rival's body,
